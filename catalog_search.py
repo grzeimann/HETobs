@@ -12,6 +12,7 @@ import httplib
 from astropy.table import Table
 import numpy as np
 
+
 def mastQuery(request):
     server = 'mast.stsci.edu'
 
