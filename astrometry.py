@@ -15,15 +15,19 @@ from astropy import wcs
 
 class Astrometry:
     def __init__(self, ra0, dec0, pa, x0, y0, x_scale=-1., y_scale=1.,
-                 sys_rot=1.3, fplane_file=None, kind='fplane'):
+                 sys_rot=1.07, fplane_file=None, kind='fplane'):
         self.setup_logging()
-        self.ra = ra0
-        self.dec = dec0
+        self.ra0 = ra0
+        self.dec0 = dec0
         self.dra = 0.
         self.ddec = 0.
+        self.dx = 0.
+        self.dy = 0.
         self.x0 = x0
         self.y0 = y0
         self.pa = pa
+        self.x_scale = x_scale
+        self.y_scale = y_scale
         self.sys_rot = sys_rot
         self.fplane_file = fplane_file
         if self.fplane_file is None:
@@ -37,11 +41,10 @@ class Astrometry:
 
         # Building tangent plane projection with scale 1"
         self.tp = self.setup_TP(self.ra0, self.dec0, self.rot, self.x0,
-                                self.y0, x_scale=x_scale, y_scale=y_scale)
+                                self.y0)
         self.tp_ifuslot = None
 
-    def setup_TP(self, ra0, dec0, rot, x0=0.0, y0=0.0, x_scale=-1.,
-                 y_scale=1.):
+    def setup_TP(self, ra0, dec0, rot, x0=0.0, y0=0.0):
         ARCSECPERDEG = 1.0/3600.0
 
         # make a WCS object with appropriate FITS headers
@@ -50,7 +53,8 @@ class Astrometry:
         tp.wcs.crval = [ra0, dec0]  # tangent point
         tp.wcs.ctype = ['RA---TAN', 'DEC--TAN']
         # pixel scale in deg.
-        tp.wcs.cdelt = [ARCSECPERDEG * x_scale, ARCSECPERDEG * y_scale]
+        tp.wcs.cdelt = [ARCSECPERDEG * self.x_scale,
+                        ARCSECPERDEG * self.y_scale]
 
         # Deal with PA rotation by adding rotation matrix to header
         rrot = deg2rad(rot)
@@ -95,7 +99,7 @@ class Astrometry:
         if self.kind == 'fplane':
             self.rot = 360. - (90. + self.pa + self.sys_rot)
         elif self.kind == 'acam':
-            self.rot = -self.pa + self.sys_rot
+            self.rot = self.pa + self.sys_rot + 90.
         else:
             self.log.error('"kind" was not set to available options.')
             self.log.info('Available options are: %s and %s' % ('fplane',
@@ -109,8 +113,8 @@ class Astrometry:
         # Building tangent plane projection with scale 1"
         # dra = self.dra / 3600. / np.cos(np.deg2rad(self.dec))
         # ddec = self.ddec / 3600.
-        self.tp = self.setup_TP(self.ra0, self.dec0, self.rot, self.x0,
-                                self.y0)
+        self.tp = self.setup_TP(self.ra0 + self.dra, self.dec0 + self.ddec,
+                                self.rot, self.x0 + self.dx, self.y0 + self.dy)
 
     def get_ifuslot_ra_dec(self, ifuslot):
         if self.fplane is None:

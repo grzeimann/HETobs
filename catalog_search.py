@@ -13,6 +13,32 @@ from astropy.table import Table
 import numpy as np
 
 
+class MakeRegionFile(object):
+    @classmethod
+    def writeHeader(cls, f):
+        """Write the header to file ``f``
+
+        Parameters
+        ----------
+        f : file-like object
+            where to write to; must have a ``write`` method
+        """
+        s = []
+
+        s.append('# Region file format: DS9 version 4.1')
+        s.append('global color=green dashlist=8 3 width=1 '
+                 'font="helvetica 10 normal roman" select=1 highlite=1 dash=0 '
+                 'fixed=0 edit=1 move=1 delete=1 include=1 source=1')
+        s.append('fk5')
+        f.write('\n'.join(s) + "\n")
+
+    @classmethod
+    def writeSource(cls, f, ra, dec, rad=2):
+        s = ('circle(%0.6f, %0.6f, %0.2f")' % (ra, dec, rad))
+        f.write(s + "\n")
+        f.flush()
+
+
 def mastQuery(request):
     server = 'mast.stsci.edu'
 
