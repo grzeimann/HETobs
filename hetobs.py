@@ -5,40 +5,41 @@ Created on Tue Dec  5 07:30:47 2017
 @author: gregz
 """
 import astrometry
-import glob
 import datetime
+import glob
 import logging
 
-import os.path as op
 import astropy.units as u
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import os.path as op
 
-from catalog_search import queryTESS_IC, MakeRegionFile
+from astropy.coordinates import SkyCoord
 from astropy.io import fits
 from astropy.stats import biweight_location, biweight_midvariance
-from astropy.coordinates import SkyCoord
-from photutils import Background2D, SigmaClip, BiweightLocationBackground
-from photutils import detect_sources, deblend_sources, DAOStarFinder
 from astropy.visualization import AsinhStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
-from astropy.convolution import Gaussian2DKernel
-from astropy.stats import gaussian_fwhm_to_sigma
+from catalog_search import queryTESS_IC
+from photutils import Background2D, SigmaClip, BiweightLocationBackground
+from photutils import DAOStarFinder
 
+# HARD CODED FOR TESTING
 acam_x_origin = 189.1 - 4.  # Trim the overscan (first four pixels)
 acam_y_origin = 386.8
 acam_pix_scale = 0.2709
-
-acam_bias = fits.open('/Users/gregz/cure/calibration/acm/masterbias_acm.fits')
+# This can bomb because of relative link
+acam_bias = fits.open('calibration/acm/masterbias_acm.fits')
 acam_bias = acam_bias[0].data
 
+#################################
+# EDIT NEXT TWO LINES FOR TESTING
 rootdir = '/Users/gregz/cure/lrs2_raw/20170721'
 observation = ('/Users/gregz/cure/lrs2_raw/20170721/lrs2/lrs20000004'
                '/exp01/lrs2/20170721T045123.5_066LL_sci.fits')
 
 
 def setup_logging():
-    '''Set up a logger for analysis with a name ``shot``.
+    '''Set up a logger for analysis with a name ``hetobs``.
 
     Use a StreamHandler to write to stdout and set the level to DEBUG if
     verbose is set from the command line
@@ -61,6 +62,7 @@ def setup_logging():
 
 
 def get_datetime_from_filename(filename):
+    ''' Rip out the date and time from HET filenaming scheme '''
     date, time = op.basename(filename).split('_')[0].split('T')
     year, month, day = [int(x) for x in (date[:4], date[4:6], date[6:])]
     hour, minute, second = [int(x) for x in (time[:2], time[2:4], time[4:6])]
@@ -69,7 +71,7 @@ def get_datetime_from_filename(filename):
 
 
 def get_obs_info(observation):
-    ''' Get Observation Info for a filename '''
+    ''' Get the position we think we are at as well as paralactic angle'''
     F = fits.open(observation)
     ra = F[0].header['TRAJCRA'] * 15.
     dec = F[0].header['TRAJCDEC']
@@ -89,7 +91,8 @@ def get_imager_list_by_obs(dt, lag=300., kind='acm'):
         time before the observation.  In other words, all files taken
         before the observation within "lag" seconds.
 
-    Returns:
+    Output
+    ------
     fkeep : list
         list of filenames
     '''
@@ -99,7 +102,7 @@ def get_imager_list_by_obs(dt, lag=300., kind='acm'):
         adt = get_datetime_from_filename(fn)
         # Positive differences mean before observation
         diff = dt - adt
-        tdiff = diff.days*86400. + diff.seconds
+        tdiff = diff.days * 86400. + diff.seconds
         # For the time difference we want files with tdiff > 0 and <= lag
         if tdiff > 0. and tdiff <= lag:
             fkeep.append(fn)
@@ -107,21 +110,30 @@ def get_imager_list_by_obs(dt, lag=300., kind='acm'):
 
 
 def reduce_acam(image):
+    ''' Really simple reduction '''
+    # Get overscan but skip first column because it looks off
     overscan = biweight_location(image[:, 1:4])
+    # Trim all of the overscan and subtracted the average value
     image = image[:, 4:] - overscan
+    # Subtract the currently global variable "acam_bias" (master bias)
     image = image - acam_bias
     return image
 
 
 def reduce_guider(kind):
+    ''' Fill this in when necessary '''
     pass
 
 
 def get_stars_for_obs(ra, dec, rad=25./60.):
+    ''' Query the TESS catalog, but could be more complicated if need be '''
     return queryTESS_IC(ra, dec, rad)
 
 
 def get_stars_for_acam(catalog, acam_TP):
+    '''
+    Use coordinates in catalog to select stars within 3' of ACAM central pixel
+    '''
     ra0, dec0 = acam_TP.tp.wcs_pix2world(385.5, 385.5, 1)
     c = SkyCoord(np.array([ra0])*u.degree, np.array([dec0])*u.degree,
                  frame='fk5')
@@ -133,22 +145,21 @@ def get_stars_for_acam(catalog, acam_TP):
 
 
 def get_star_candidates_for_probe(catalog, kind):
+    ''' Fill in when necessary '''
     pass
 
 
 def set_initial_acam_astrometry(ra, dec, pa):
+    ''' We need ra, dec, pa and hard coded values above '''
     return astrometry.Astrometry(ra0=ra, dec0=dec, pa=pa, x0=acam_x_origin,
                                  y0=acam_y_origin, x_scale=acam_pix_scale,
                                  y_scale=acam_pix_scale, kind='acam')
 
 
-def get_astrometry_acam(init_astrom, stars):
-    pass
-
-
 def make_image_subplot(fig, image, wcs, title=None,
                        vval=None, use_norm=True, cmap='Greys',
                        use_projection=True):
+    ''' Plotting tool for checking astrometric solution of ACAM '''
     figkwargs = {}
     kwargs = {}
     if use_projection:
@@ -187,9 +198,7 @@ def make_image_subplot(fig, image, wcs, title=None,
 
 
 def measure_image_background(image):
-    '''
-    image
-    '''
+    ''' This does not have to be sophisticated '''
     sigma_clip = SigmaClip(sigma=3., iters=3)
     bkg_estimator = BiweightLocationBackground()
     bkg = Background2D(image, (100, 100), filter_size=(3, 3),
@@ -197,30 +206,18 @@ def measure_image_background(image):
     return image-bkg.background, bkg
 
 
-def detect_in_image(image_sub, bkg, thresh=5., fwhm=5.5, scale=0.5):
-    '''
-    Make detections in sky-subtracted image
-    image_sub, bkg
-    '''
-    threshold = (thresh * bkg.background_rms)
+def detect_in_image(image_sub, bkg, thresh=5., fwhm=1.5, scale=0.2709):
+    ''' Key parameters here are thresh, threshold above backgroundm and fwhm'''
     fwhm_i = fwhm / scale
-    sigma_i = fwhm_i * gaussian_fwhm_to_sigma
-    kernel_size = int(sigma_i*4.)
-    kernel = Gaussian2DKernel(sigma_i, x_size=kernel_size, y_size=kernel_size)
-    kernel.normalize()
-    segm = detect_sources(np.array(image_sub), threshold, npixels=5,
-                          filter_kernel=kernel)
-    if segm.array.sum():
-        segm = deblend_sources(image_sub, segm, npixels=5,
-                               filter_kernel=kernel)
     d = DAOStarFinder(fwhm=fwhm_i,
                       threshold=thresh*bkg.background_rms_median,
                       exclude_border=True)
     sources = d(image_sub)
-    return segm, sources
+    return sources
 
 
-def get_xy_offset(sources, xc, yc):
+def find_matches(sources, xc, yc):
+    ''' Matching sources using closest neighbor and clipping '''
     dx = (sources['xcentroid'][:, np.newaxis] - xc)
     dy = (sources['ycentroid'][:, np.newaxis] - yc)
     dd = np.sqrt(dx**2 + dy**2)
@@ -232,13 +229,20 @@ def get_xy_offset(sources, xc, yc):
     mvx = biweight_location(dxk)
     mvy = biweight_location(dyk)
     sel = np.where((np.abs(dxk-mvx) < 3.*bvx) * (np.abs(dyk-mvy) < 3.*bvy))[0]
-    mvx = biweight_location(dxk[sel])
-    mvy = biweight_location(dyk[sel])
-    bvx = biweight_midvariance(dxk[sel])
-    bvy = biweight_midvariance(dyk[sel])
-    return mvx, mvy, bvx, bvy
+    return sel, ind[sel]
 
 
+def find_astrometric_solution(ra, dec, x, y):
+    # normalize zeropoints
+    ksi = "formula"
+    eta = "formula"
+    # convert into solution
+    # len(x) by 6 matrix
+    # x y 1 0 0 0 # repeat each ksi
+    # 0 0 0 x y 1 # repeat each eta
+    pass
+
+# Run everything outside of function so I can debug in ipython
 log = setup_logging()
 log.info('Getting observation info')
 ra, dec, pa, dt = get_obs_info(observation)
@@ -261,16 +265,18 @@ for acm in acm_list:
     log.info('Measuring background for %s' % op.basename(acm))
     image, bkg = measure_image_background(image)
     log.info('Detecting sources for %s' % op.basename(acm))
-    segm, sources = detect_in_image(image, bkg)
+    sources = detect_in_image(image, bkg)
     log.info('Making plot for %s' % op.basename(acm))
     fig = plt.figure(figsize=(8, 8))
     make_image_subplot(fig, image, acm_TP.tp)
     plt.scatter(sources['xcentroid'], sources['ycentroid'],
                 color='g', marker='o', s=100, facecolor='none', lw=2)
     log.info('Getting offset for %s' % op.basename(acm))
-    xoff, yoff, xerror, yerror = get_xy_offset(sources, xc, yc)
-    acm_TP.dx = xoff
-    acm_TP.dy = yoff
+    sel_src, sel_cat = find_matches(sources, xc, yc)
+    x, y, ra, dec = (sources['xcentroid'][sel_src],
+                     sources['ycentroid'][sel_src], cat['ra'][sel_cat],
+                     cat['dec'][sel_cat])
+    sol = find_astrometric_solution(ra, dec, x, y)
     log.info('Updating projection for %s' % op.basename(acm))
     acm_TP.update_projection()
     xc, yc = acm_TP.tp.wcs_world2pix(cat['ra'], cat['dec'], 1)
