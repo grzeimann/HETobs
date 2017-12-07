@@ -40,6 +40,7 @@ class MakeRegionFile(object):
 
 
 def mastQuery(request):
+    ''' Mast seems to respond quickly which is great '''
     server = 'mast.stsci.edu'
 
     # Grab Python Version
@@ -71,7 +72,7 @@ def mastQuery(request):
 
 
 def mastJson2Table(jsonObj):
-
+    ''' Table() allows for numpy array's and easy calls '''
     dataTable = Table()
     for col, atype in [(x['name'], x['type']) for x in jsonObj['fields']]:
         if atype == 'string':
@@ -90,6 +91,7 @@ def mastJson2Table(jsonObj):
 
 
 def queryTESS_IC(ra, dec, radius):
+    ''' TESS input catalog is a mash-up of 2mass, SDSS, GAIA, and more '''
     mashupRequest = {'service': 'Mast.Catalogs.Tic.Cone',
                      'params': {'ra': ra,
                                 'dec': dec,
