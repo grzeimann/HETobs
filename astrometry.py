@@ -8,12 +8,29 @@ Created on Fri Jun  2 09:19:46 2017
 import logging
 import sys
 
-from pyhetdex.het.fplane import FPlane
-from numpy import cos, sin, deg2rad
 from astropy import wcs
+from numpy import cos, sin, deg2rad
+
+try:
+    from pyhetdex.het.fplane import FPlane
+    pyhetdex_flag = True
+except:
+    print('Warning: Pyhetdex not installed.')
+    pyhexdex_flag = False
 
 
 class Astrometry:
+    '''
+    Astrometry Class
+
+    This class holds basic astrometric solutions for fits imaging and has a
+    suite of functions designed to manage the conversion from on sky
+    coordinates to on image coordinates (and vice versa) as well as take
+    updates to the solution.  Other functionaility has a specific design
+    for serving as the HET's fplane astrometry and building astrometric
+    solutions for given ifuslot's based on the fplane astrometry.  This is
+    useful for reconstructed VIRUS images.
+    '''
     def __init__(self, ra0, dec0, pa, x0, y0, x_scale=-1., y_scale=1.,
                  sys_rot=1.07, fplane_file=None, kind='fplane'):
         self.setup_logging()
@@ -35,7 +52,11 @@ class Astrometry:
             self.log.info('Some functions will be unavailable until'
                           'an fplane is given.')
         else:
-            self.fplane = FPlane(self.fplane_file)
+            if not pyhetdex_flag:
+                self.log.warning('Cannot load fplane because pyhetdex '
+                                 'is not available')
+            else:
+                self.fplane = FPlane(self.fplane_file)
         self.kind = kind
         self.set_effective_rotation()
 
@@ -45,6 +66,7 @@ class Astrometry:
         self.tp_ifuslot = None
 
     def setup_TP(self, ra0, dec0, rot, x0=0.0, y0=0.0):
+        ''' TP is tangent plane '''
         ARCSECPERDEG = 1.0/3600.0
 
         # make a WCS object with appropriate FITS headers
@@ -63,6 +85,7 @@ class Astrometry:
         return tp
 
     def set_polynomial_platescale(self):
+        ''' This has not been tested '''
         self.tp.wcs.a_0_0 = 0.177311
         self.tp.wcs.a_1_0 = -8.29099e-06
         self.tp.wcs.a_2_0 = -2.37318e-05
@@ -73,7 +96,7 @@ class Astrometry:
         self.tp.wcs.b_order = 2
 
     def setup_logging(self):
-        '''Set up a logger for analysis with a name ``shot``.
+        '''Set up a logger for analysis with a name ``astrometry``.
 
         Use a StreamHandler to write to stdout and set the level to DEBUG if
         verbose is set from the command line
@@ -94,8 +117,7 @@ class Astrometry:
             self.log.addHandler(handler)
 
     def set_effective_rotation(self):
-        # Making rotation from the PA
-        # TODO: re-derive this formula 
+        ''' The rotation for the acam is correct '''
         if self.kind == 'fplane':
             self.rot = 360. - (90. + self.pa + self.sys_rot)
         elif self.kind == 'acam':
@@ -109,14 +131,13 @@ class Astrometry:
             sys.exit(1)
 
     def update_projection(self):
+        ''' Use this for a new projection with small adjustments '''
         self.set_effective_rotation()
-        # Building tangent plane projection with scale 1"
-        # dra = self.dra / 3600. / np.cos(np.deg2rad(self.dec))
-        # ddec = self.ddec / 3600.
         self.tp = self.setup_TP(self.ra0 + self.dra, self.dec0 + self.ddec,
                                 self.rot, self.x0 + self.dx, self.y0 + self.dy)
 
     def get_ifuslot_ra_dec(self, ifuslot):
+        ''' Fplane functionality required for this '''
         if self.fplane is None:
             return None
         ifu = self.fplane.by_ifuslot(ifuslot)
@@ -124,21 +145,24 @@ class Astrometry:
         return self.tp.xy2raDec(ifu.y, ifu.x)
 
     def get_ifuspos_ra_dec(self, ifuslot, x, y):
-        if self.fplane is None:
+        ''' Fplane functionality required for this '''
+        if self.fplane is None or not pyhetdex_flag:
             return None
         ifu = self.fplane.by_ifuslot(ifuslot)
         # remember to flip x,y
         return self.tp.wcs_pix2world(ifu.y + x, ifu.x + y, 1)
 
     def get_ifuslot_projection(self, ifuslot, imscale, crx, cry):
-        if self.fplane is None:
+        ''' Fplane functionality required for this '''
+        if self.fplane is None or not pyhetdex_flag:
             return None
         ra, dec = self.get_ifuslot_ra_dec(ifuslot)
         self.tp_ifuslot = self.setup_TP(ra, dec, self.rot, crx, cry,
                                         x_scale=-imscale, y_scale=imscale)
 
     def convert_ifuslot_xy_to_new_xy(self, x, y, wcs):
-        if self.tp_ifuslot is None:
+        ''' Fplane functionality required for this '''
+        if self.tp_ifuslot is None or not pyhetdex_flag:
             self.log.error('You have not setup the ifuslot projection yet.')
             self.log.error('To do so, call '
                            '"get_ifuslot_projection(ifuslot, imscale')
