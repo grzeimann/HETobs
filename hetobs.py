@@ -20,6 +20,7 @@ from astropy.stats import biweight_location, biweight_midvariance
 from astropy.visualization import AsinhStretch
 from astropy.visualization.mpl_normalize import ImageNormalize
 from catalog_search import queryTESS_IC
+from numpy import cos, sin, tan
 from photutils import Background2D, SigmaClip, BiweightLocationBackground
 from photutils import DAOStarFinder
 
@@ -232,24 +233,37 @@ def find_matches(sources, xc, yc):
     return sel, ind[sel]
 
 
-def find_astrometric_solution(ra, dec, x, y):
-    # normalize zeropoints
-    ksi = "formula"
-    eta = "formula"
-    # convert into solution
-    # len(x) by 6 matrix
-    # x y 1 0 0 0 # repeat each ksi
-    # 0 0 0 x y 1 # repeat each eta
-    pass
+def find_astrometric_solution(ra, dec, x, y, ra0, dec0, x0, y0):
+    ''' This linear algebra problem is constrained with >= 3 stars '''
+    # convert to radians for formula
+    rar, decr, ra0r, dec0r = [np.deg2rad(i) for i in [ra, dec, ra0, dec0]]
+    # Since x0 and y0 might not be 0,0
+    xs = x - x0
+    ys = y - y0
+    n = len(xs)
+    # Standard coordinates ksi and eta
+    ksi = (cos(decr) * sin(rar-ra0r) /
+           (sin(decr)*sin(dec0r) + cos(decr)*cos(dec0r)*cos(rar-ra0r)))
+    eta = ((sin(decr)*cos(dec0r) - cos(decr)*sin(dec0r)*cos(rar-ra0r)) /
+           (sin(decr)*sin(dec0r) + cos(decr)*cos(dec0r)*cos(rar-ra0r)))
+    # 2 * len(x) by 6 matrix
+    # x y 1 0 0 0 # repeat for all x and y
+    # 0 0 0 x y 1 # repeat for all x and y
+    A = np.zeros((n * 2, 6))
+    A[:n, 0], A[:n, 1], A[:n, 2] = (xs, ys, np.ones((n,)))
+    A[n:, 3], A[n:, 4], A[n:, 5] = (xs, ys, np.ones((n,)))
+    b = np.hstack([ksi, eta])  # size 2 * len(x)
+    sol = np.linalg.lstsq(A, b)[0]
+    return sol
 
 # Run everything outside of function so I can debug in ipython
 log = setup_logging()
 log.info('Getting observation info')
-ra, dec, pa, dt = get_obs_info(observation)
+ra0, dec0, pa, dt = get_obs_info(observation)
 log.info('Gathering stars from catalog')
-catalog = get_stars_for_obs(ra, dec, 5./60.)
+catalog = get_stars_for_obs(ra0, dec0, 5./60.)
 log.info('Setting up astrometry')
-acm_TP = set_initial_acam_astrometry(ra, dec, pa)
+acm_TP = set_initial_acam_astrometry(ra0, dec0, pa)
 log.info('Getting acam image list')
 acm_list = get_imager_list_by_obs(dt)
 log.info('Getting acam stars from catalog')
@@ -276,9 +290,10 @@ for acm in acm_list:
     x, y, ra, dec = (sources['xcentroid'][sel_src],
                      sources['ycentroid'][sel_src], cat['ra'][sel_cat],
                      cat['dec'][sel_cat])
-    sol = find_astrometric_solution(ra, dec, x, y)
+    sol = find_astrometric_solution(ra, dec, x, y, ra0, dec0, acam_x_origin,
+                                    acam_y_origin)
     log.info('Updating projection for %s' % op.basename(acm))
-    acm_TP.update_projection()
-    xc, yc = acm_TP.tp.wcs_world2pix(cat['ra'], cat['dec'], 1)
-    plt.scatter(xc, yc, marker='x', color='r')
+    # acm_TP.update_projection()
+    # xc, yc = acm_TP.tp.wcs_world2pix(cat['ra'], cat['dec'], 1)
+    # plt.scatter(xc, yc, marker='x', color='r')
     plt.show()
