@@ -9,14 +9,17 @@ import httplib
 import json
 import sys
 import warnings
+import requests
 
 import numpy as np
 
-from astropy.coords import SkyCoord
 from astropy import units as u
+from astropy.coordinates import SkyCoord
+from astropy.io.votable import parse_single_table
 from astropy.table import Table
 from astropy.vo.client import vos_catalog
 from urllib import pathname2url as urlencode
+
 
 with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -119,6 +122,23 @@ def queryTESS_IC(ra, dec, radius):
     return table[sel]
 
 
+def queryPANSTARRS(ra, dec, radius):
+    ''' Pan-STARRS '''
+    mashupRequest = {'service': 'Mast.Catalogs.Panstarrs.Cone',
+                     'params': {'ra': ra,
+                                'dec': dec,
+                                'radius': radius},
+                     'format': 'json',
+                     'pagesize': 10000,
+                     'page': 1}
+
+    headers, outString = mastQuery(mashupRequest)
+    outData = json.loads(outString)
+
+    table = mastJson2Table(outData)
+    return table
+
+
 def queryUSNO_A2(ra, dec, radius):
     '''
     Queries USNO_A2.
@@ -154,3 +174,30 @@ def querySDSS(ra, dec, radius):
                               photoobj_fields=['ra', 'dec', 'objid', 'type',
                                                'u', 'g', 'r', 'i', 'z'])
     return table[np.where(table['type'] == 6)[0]]
+
+
+def panstarrs_query(ra_deg, dec_deg, rad_deg, mindet=1,
+                    maxsources=10000,
+                    server=('https://archive.stsci.edu/panstarrs/search.php')):
+    """
+    Query Pan-STARRS DR1 @ MAST
+    parameters: ra_deg, dec_deg, rad_deg: RA, Dec, field
+                                          radius in degrees
+                mindet: minimum number of detection (optional)
+                maxsources: maximum number of sources
+                server: servername
+    returns: astropy.table object
+    """
+    r = requests.get(server, params={'RA': ra_deg, 'DEC': dec_deg,
+                                     'SR': rad_deg, 'max_records': maxsources,
+                                     'outputformat': 'VOTable',
+                                     'ndetections': ('>%d' % mindet)})
+
+    # write query data into local file
+    outf = open('panstarrs.xml', 'w')
+    outf.write(r.text)
+    outf.close()
+
+    # parse local file into astropy.table object
+    data = parse_single_table('panstarrs.xml')
+    return data.to_table(use_names_over_ids=True)
